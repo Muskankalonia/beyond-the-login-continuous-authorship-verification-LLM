@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "identity-verification"
+version = "0.1.0"
+description = "Hardness-aware conversational identity verification experiments"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "scikit-learn",
+  "tqdm",
+]
+
+[project.optional-dependencies]
+data = [
+  "pyarrow",
+]
+models = [
+  "torch",
+  "transformers",
+  "sentence-transformers",
+]
+dev = [
+  "pytest",
+  "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

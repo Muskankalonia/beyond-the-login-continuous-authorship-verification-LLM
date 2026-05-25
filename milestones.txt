@@ -1,0 +1,98 @@
+Milestone Chart
+===============
+
+1. Project Scaffold
+   - create clean repo structure
+   - configs, paths, logging, seed utilities
+   - common pair/profile data schema
+
+2. Dataset Audit Tools
+   - PAN audit: pairs, labels, author IDs, texts per author
+   - WildChat audit: users, messages per user, usable users, language stats
+
+3. PAN Profile-Query Benchmark
+   - convert PAN training data into author-level text pools
+   - keep authors with >=10 unique texts
+   - 60/20/20 author split across 3 seeds
+   - random 70% author texts = profile
+   - remaining 30% author texts = query stream
+   - construct 50% positive and 50% negative examples
+   - negative mix: 50% random, 30% semi-hard, 20% hard
+
+4. WildChat Profile-Query Benchmark
+   - use English users with >=10 messages
+   - 60/20/20 user split across 3 seeds
+   - first 70% user messages = profile
+   - last 30% user messages = query stream
+   - construct 50% positive and 50% negative examples
+   - negative mix: 50% random, 30% semi-hard, 20% hard
+
+5. Hardness Mining
+   - primary miner: TF-IDF char n-gram + word n-gram cosine
+   - hard = top 5% most similar imposters
+   - semi-hard = 70th to 95th percentile
+   - random = uniform different author/user
+   - near-duplicate filtering
+   - secondary miner: SBERT for sensitivity
+
+6. Training Regime Baselines
+   - random-only negative training: 100% random imposters
+   - mixed hardness training: 50% random + 30% semi-hard + 20% hard
+   - optional curriculum training later
+   - test all regimes on same random/semi-hard/hard test sets
+   - compare robustness gap
+
+7. Metrics Module
+   - ROC-AUC
+   - PR-AUC
+   - F1
+   - EER
+   - FAR@FRR=1%
+   - TAR@FAR=1%
+   - Brier score
+   - ECE
+   - robustness gap
+   - profile-only: AUC@1/3, EER@1/3
+   - imposter catch rate@3
+   - genuine survival rate@3
+   - median and p90 messages-to-detect
+
+8. Model Interface
+   - common encoder verifier interface
+   - support these models:
+     - sentence-transformers/all-MiniLM-L6-v2
+     - distilbert-base-uncased
+     - bert-base-uncased
+     - roberta-base
+     - microsoft/deberta-v3-base
+     - answerdotai/ModernBERT-base
+     - google/electra-base-discriminator
+     - sentence-transformers/all-mpnet-base-v2
+
+9. Training + Evaluation Runners
+    - config-driven training
+    - seed-controlled runs
+    - checkpointing
+    - validation threshold selection
+    - per-hardness test evaluation
+    - JSON/CSV report generation
+
+10. Result Aggregation
+    - mean +/- std over seeds
+    - model comparison tables
+    - training-regime comparison tables
+    - robustness gap tables
+    - continuous verification tables
+
+11. SBERT Sensitivity Experiments
+    - run best 1-2 models only
+    - TF-IDF train -> SBERT test hardness
+    - SBERT train -> SBERT test hardness
+    - verify conclusions are not TF-IDF-specific
+
+12. Reproducibility + Review
+    - README commands
+    - config documentation
+    - sanity tests for splits, hardness mining, metrics
+    - small synthetic tests for pair/profile construction
+    - final code cleanup before experiments

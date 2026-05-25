@@ -1,0 +1,99 @@
+% System-overview block diagram for "Beyond the Login".
+% Drop into draft.tex with:
+%   \begin{figure*}[t]
+%     \centering
+%     \resizebox{0.95\textwidth}{!}{\input{figures/system_overview}}
+%     \caption{...}
+%     \label{fig:system_overview}
+%   \end{figure*}
+%
+% Requires (already in draft.tex):
+%   \usepackage{tikz}
+%   \usetikzlibrary{positioning, arrows.meta, fit, calc, shapes.geometric, backgrounds}
+
+\begin{tikzpicture}[
+    font=\footnotesize,
+    >={Stealth[length=2mm]},
+    block/.style={
+        draw, thick, rounded corners=2pt,
+        minimum width=22mm, minimum height=10mm,
+        align=center, inner sep=2pt, fill=white
+    },
+    io/.style={
+        draw, thick,
+        minimum width=22mm, minimum height=9mm,
+        align=center, inner sep=2pt, fill=white
+    },
+    profilebox/.style={
+        draw, thick,
+        minimum width=22mm, minimum height=9mm,
+        align=center, inner sep=2pt, fill=gray!8
+    },
+    gate/.style={
+        draw, thick, rounded corners=2pt,
+        minimum width=22mm, minimum height=12mm,
+        align=center, inner sep=2pt, fill=gray!12
+    },
+    actor/.style={
+        draw, thick, dashed, rounded corners=2pt,
+        minimum width=22mm, minimum height=9mm,
+        align=center, inner sep=2pt
+    },
+    outcome/.style={
+        draw, thick,
+        minimum width=24mm, minimum height=8mm,
+        align=center, inner sep=2pt, fill=white
+    },
+    arrow/.style={->, thick},
+    midlabel/.style={font=\scriptsize, midway, fill=white, inner sep=1pt}
+]
+
+% --- Actor on the left ---
+\node[actor] (typist) at (0,0) {Person at keyboard\\(user \emph{or} adversary)};
+
+% --- Incoming message and stored profile ---
+\node[io, right=10mm of typist] (msg) {Incoming\\message $q$};
+\node[profilebox, below=8mm of msg] (profile) {Enrolled profile\\$\{p_1,\dots,p_N\}$};
+
+% --- Shared bi-encoder (vertically centered between msg and profile) ---
+\node[block] (enc) at ($(msg)!0.5!(profile) + (38mm,0)$)
+    {Bi-encoder $\phi(\cdot)$\\(shared weights)};
+
+% --- Cosine score and action gate ---
+\node[block, right=12mm of enc] (score)
+    {Cosine score\\$s=\tfrac{\cos(\phi_p,\phi_q)+1}{2}$};
+\node[gate, right=12mm of score] (gateNode)
+    {Action gate\\\textit{low / med / high}};
+
+% --- Outcomes: wider gap so arrow labels do not overlap ---
+\node[outcome] (allow)   at ($(gateNode.east) + (28mm, 11mm)$) {Allow\\\scriptsize(low-trust)};
+\node[outcome] (confirm) at ($(gateNode.east) + (28mm,  0mm)$) {In-app confirm\\\scriptsize(medium-trust)};
+\node[outcome] (block)   at ($(gateNode.east) + (28mm,-11mm)$) {Fresh re-auth\\\scriptsize(high-trust)};
+
+% --- Typist to message ---
+\draw[arrow] (typist.east) -- (msg.west);
+
+% --- Message and profile into shared encoder ---
+\draw[arrow] (msg.east)     -- node[midlabel, above]{$q$}   (enc.north west);
+\draw[arrow] (profile.east) -- node[midlabel, below]{$p_i$} (enc.south west);
+
+% --- Encoder to cosine and cosine to gate ---
+\draw[arrow] (enc.east)   -- node[midlabel, above]{$\phi_q,\phi_p$} (score.west);
+\draw[arrow] (score.east) -- node[midlabel, above]{$s\in[0,1]$}    (gateNode.west);
+
+% --- Gate to outcomes (no on-arrow labels; tiers now inside outcome boxes) ---
+\draw[arrow] (gateNode.east) -- (allow.west);
+\draw[arrow] (gateNode.east) -- (confirm.west);
+\draw[arrow] (gateNode.east) -- (block.west);
+
+% --- Bounding box around verifier ---
+\begin{scope}[on background layer]
+    \node[
+        fit=(enc)(score)(gateNode),
+        draw, thick, rounded corners=3pt,
+        inner xsep=5mm, inner ysep=6mm,
+        label={[anchor=south, font=\scriptsize\itshape, yshift=-1mm]north:In-session verifier}
+    ] (verifier) {};
+\end{scope}
+
+\end{tikzpicture}

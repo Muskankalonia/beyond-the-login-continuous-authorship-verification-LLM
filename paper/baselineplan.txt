@@ -1,0 +1,88 @@
+# One-Sweep Baseline Plan
+
+## Summary
+Add one standalone sweep script that evaluates all requested baselines without contrastive fine-tuning and writes paper-ready summaries for Table 2. It will run over PAN and WildChat, seeds `13/21/42`, and the same four TF-IDF-mined test regimes: `random`, `semi_hard`, `hard`, and `mixed`.
+
+The sweep will produce:
+- TF-IDF cosine baseline: `2 datasets × 4 regimes`
+- SBERT zero-shot baseline: `2 datasets × 4 regimes`
+- Frozen pretrained encoder baselines: `4 backbones × 2 datasets × 4 regimes`
+
+## Key Changes
+Create one new script first, following the repo’s incremental workflow:
+
+`scripts/evaluate_profile_baseline_sweep.py`
+
+Behavior:
+- Load existing profile splits from:
+  - `data/processed/pan_profiles/seed_{seed}/`
+  - `data/processed/wildchat_profiles/seed_{seed}/`
+- Reuse existing TF-IDF hardness caches:
+  - `data/processed/hardness_indexes/{dataset}/seed_{seed}/{val,test}_tfidf.json`
+- Select one validation threshold per `(baseline, dataset, seed, model_if_any)` using the `val_mixed` regime, matching the trained contrastive setup.
+- Evaluate all four test regimes with shared metric code: ROC-AUC, PR-AUC, F1, EER, FAR@FRR=1%, TAR@FAR=1%, Catch@3, median messages-to-detect.
+- Write per-run metrics plus final mean ± sample std summaries.
+
+Baseline definitions:
+- **TF-IDF cosine**: fit `TfidfEncoder(min_df=1)` on train profile/query text only, then cosine-score profile vs query on val/test.
+- **SBERT zero-shot**: use fixed `sentence-transformers/all-MiniLM-L6-v2`, no fine-tuning, same mean-pooling and L2 normalization style as the contrastive encoder.
+- **Frozen pretrained encoders**: load pretrained but not task-finetuned `distilbert-base-uncased`, `bert-base-uncased`, `sentence-transformers/all-MiniLM-L6-v2`, and `google/electra-base-discriminator`.
+
+Outputs:
+- `outputs/experiments/profile_baselines/{baseline}/{dataset}/.../metrics.json`
+- `outputs/experiments/profile_baselines/{baseline}/{dataset}/.../predictions.csv`
+- `outputs/summaries/profile_baselines/summary.csv`
+- `outputs/summaries/profile_baselines/summary.md`
+- `outputs/summaries/profile_baselines/table2.md`
+
+## Sweep Commands
+Smoke test first:
+
+```bash
+.venv/bin/python scripts/evaluate_profile_baseline_sweep.py \
+  --datasets pan \
+  --seeds 13 \
+  --baselines tfidf sbert frozen_encoder \
+  --models distilbert-base-uncased \
+  --max-authors 50 \
+  --eval-batch-size 16
+```
+
+Full sweep:
+
+```bash
+.venv/bin/python scripts/evaluate_profile_baseline_sweep.py \
+  --datasets pan wildchat \
+  --seeds 13 21 42 \
+  --baselines tfidf sbert frozen_encoder \
+  --models distilbert-base-uncased bert-base-uncased sentence-transformers/all-MiniLM-L6-v2 google/electra-base-discriminator \
+  --profiles-root-pan data/processed/pan_profiles \
+  --profiles-root-wildchat data/processed/wildchat_profiles \
+  --hardness-cache-root data/processed/hardness_indexes \
+  --output-dir outputs/experiments/profile_baselines \
+  --summary-dir outputs/summaries/profile_baselines \
+  --cache-dir outputs/model_cache \
+  --max-length 256 \
+  --max-chars-per-text 2000 \
+  --eval-batch-size 16
+```
+
+## Test Plan
+Before full run:
+- Confirm smoke output has all four regimes.
+- Confirm every regime has both positive and negative labels.
+- Confirm scores are in `[0,1]`.
+- Confirm thresholds are selected from validation only.
+- Confirm TF-IDF baseline fits only on train text, not val/test.
+- Confirm existing trained-model outputs are not touched.
+
+After full run:
+- Check `table2.md` has rows for TF-IDF, SBERT, and all four frozen encoders.
+- Check summaries report mean ± sample std over seeds `13/21/42`.
+- Compare trained contrastive rows against these baselines in the paper.
+
+## Assumptions
+- “Untrained encoder” means frozen pretrained encoder with no contrastive fine-tuning.
+- SBERT zero-shot is evaluated on the same TF-IDF-mined regimes as the main table for direct comparability.
+- All results should run across seeds `13/21/42`.
+- No new training is done in this sweep.

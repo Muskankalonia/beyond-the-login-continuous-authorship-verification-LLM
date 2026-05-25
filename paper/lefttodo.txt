@@ -1,0 +1,11 @@
+cheap baselines 
+What's still missing for the strongest possible paper
+These are cheap and would push the paper from "credible" to "competitive in the main track":
+
+Cheap baselines (≈1 day compute). Run three reference verifiers on both datasets, all four test regimes, 3 seeds:
+
+TF-IDF cosine — the shallow baseline. Uses your existing TF-IDF code; no training; just evaluate cosine on profile vs query vectors.
+SBERT zero-shot — all-mpnet-base-v2 as a fixed encoder, no fine-tuning.
+Untrained-encoder baseline — for the same backbones you fine-tune (DistilBERT, BERT, etc.) — show the AUC you get from pretrained weights alone.
+Why these matter: every reviewer asks "did you need to fine-tune at all?" Without baselines you can't answer it. With them, the gap from baseline → fine-tuned tells the value of contrastive training, and the gap from baseline → mixed tells the value of hardness mining on top.
+Qualitative analysis (≈1 day work). Pick 10 hard imposter pairs per dataset where the model fails (highest-score false accepts) and inspect them. Write a paragraph: "On PAN, failures concentrate in shared-fandom imposters (Harry Potter, Marvel). On WildChat, failures concentrate in shared-task imposters (Python debugging help, creative writing). The pattern is consistent across encoders." This single section is what reviewers cite as "thoughtful analysis."

@@ -1,0 +1,15 @@
+# Copy this file to configs/paths.yaml and update local paths.
+
+project_root: .
+
+data:
+  pan:
+    root: data/raw/pan
+  wildchat:
+    root: data/raw/wildchat
+
+artifacts:
+  processed: data/processed
+  outputs: outputs
+  checkpoints: checkpoints
+
