@@ -55,12 +55,15 @@
 \node[io, right=10mm of typist] (msg) {Incoming\\message $q$};
 \node[profilebox, below=8mm of msg] (profile) {Enrolled profile\\$\{p_1,\dots,p_N\}$};
 
-% --- Shared bi-encoder (vertically centered between msg and profile) ---
-\node[block] (enc) at ($(msg)!0.5!(profile) + (38mm,0)$)
-    {Bi-encoder $\phi(\cdot)$\\(shared weights)};
+% --- Shared bi-encoder: two instances of the SAME encoder (shared weights) ---
+\node[block] (encq) at ($(msg) + (40mm,0)$)
+    {Bi-encoder $\phi(\cdot)$};
+\node[block] (encp) at ($(profile) + (40mm,0)$)
+    {Bi-encoder $\phi(\cdot)$};
+\draw[<->, thick, dashed] (encq.south) -- node[midlabel]{\scriptsize shared weights} (encp.north);
 
 % --- Cosine score and action gate ---
-\node[block, right=12mm of enc] (score)
+\node[block] (score) at ($(encq)!0.5!(encp) + (34mm,0)$)
     {Cosine score\\$s=\tfrac{\cos(\phi_p,\phi_q)+1}{2}$};
 \node[gate, right=12mm of score] (gateNode)
     {Action gate\\\textit{low / med / high}};
@@ -73,12 +76,13 @@
 % --- Typist to message ---
 \draw[arrow] (typist.east) -- (msg.west);
 
-% --- Message and profile into shared encoder ---
-\draw[arrow] (msg.east)     -- node[midlabel, above]{$q$}   (enc.north west);
-\draw[arrow] (profile.east) -- node[midlabel, below]{$p_i$} (enc.south west);
+% --- Message and profile each into their own copy of the shared encoder ---
+\draw[arrow] (msg.east)     -- node[midlabel, above]{$q$}   (encq.west);
+\draw[arrow] (profile.east) -- node[midlabel, below]{$p_i$} (encp.west);
 
-% --- Encoder to cosine and cosine to gate ---
-\draw[arrow] (enc.east)   -- node[midlabel, above]{$\phi_q,\phi_p$} (score.west);
+% --- Each encoder output to cosine; cosine to gate ---
+\draw[arrow] (encq.east) -- node[midlabel, above]{$\phi_q$} (score.west);
+\draw[arrow] (encp.east) -- node[midlabel, below]{$\phi_p$} (score.west);
 \draw[arrow] (score.east) -- node[midlabel, above]{$s\in[0,1]$}    (gateNode.west);
 
 % --- Gate to outcomes (no on-arrow labels; tiers now inside outcome boxes) ---
@@ -89,7 +93,7 @@
 % --- Bounding box around verifier ---
 \begin{scope}[on background layer]
     \node[
-        fit=(enc)(score)(gateNode),
+        fit=(encq)(encp)(score)(gateNode),
         draw, thick, rounded corners=3pt,
         inner xsep=5mm, inner ysep=6mm,
         label={[anchor=south, font=\scriptsize\itshape, yshift=-1mm]north:In-session verifier}

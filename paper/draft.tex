@@ -2,7 +2,7 @@
 
 % Change "review" to "final" for the camera-ready version.
 % Change to "preprint" for a non-anonymous version with page numbers.
-\usepackage[review]{acl}
+\usepackage[final]{acl}
 
 % Standard package includes
 \usepackage{times}
@@ -46,35 +46,38 @@
 % camera-ready block below.
 % =========================================================================
 
-% --- Review submission (KEEP THIS ACTIVE for ARR/AACL submission) ---
-\author{Anonymous ACL submission}
+% --- Review submission (re-activate for any future anonymous submission) ---
+% \author{Anonymous ACL submission}
 
-% --- Camera-ready (uncomment AFTER acceptance, comment out the line above) ---
-% \author{<My Name> \\
-%   <Affiliation> \\
-%   \texttt{<My email>} \\\And
-%   <Professor Name> \\
-%   <Professor Affiliation> \\
-%   \texttt{<professor email>} \\}
+% --- Camera-ready ---
+\author{Muskan Sharma \\
+  Independent Researcher \\
+  \texttt{muskankalonia@gmail.com} \\\And
+  Seba Susan \\
+  Dept.\ of Information Technology \\
+  Delhi Technological University \\
+  \texttt{sebasusan@dce.ac.in} \\}
 
 \begin{document}
 \maketitle
 \begin{abstract}
-LLM agents now operate as a privileged application layer, with access to mail, files and MCP-connected tools, yet they have no built-in way to verify that the person typing into an already-signed-in session is still the legitimate user. This identity gap aligns with OWASP LLM06 (Excessive Agency), Agentic ASI03 (Identity and Privilege Abuse), and NIST guidance on AI risk management, but whether it is closable from user text alone is largely open. We build a profile-query authorship verification benchmark on WildChat-1M and PAN-20 regrouped per author, with author-disjoint 60/20/20 splits across three seeds. We train contrastive bi-encoders with triplet margin loss on DistilBERT, BERT, MiniLM-L6 and ELECTRA, under 100\% random imposters or a 50/30/20 mix of random, semi-hard and hard imposters mined by TF-IDF. Models trained on random imposters look strong (ROC-AUC above 0.95) but drop by around 10 points on WildChat against topic-similar imposters, suggesting they rely on topic and vocabulary rather than writing style only. Hardness-aware training closes most of this gap, lifting TAR@FAR=1\% on WildChat Hard from around 6--7\% to 20--22\% for BERT and DistilBERT with median messages-to-detect of one, and the same direction holds under a secondary SBERT miner. We release the benchmark construction and evaluation code.
+LLM agents now operate as a privileged application layer, with access to mail, files and MCP-connected tools, yet they have no built-in way to verify that the person typing into an already-signed-in session is still the legitimate user. This identity gap aligns with OWASP LLM06 (Excessive Agency), Agentic ASI03 (Identity and Privilege Abuse), and NIST guidance on AI risk management, but whether it is closable from user text alone is largely open. We build a profile-query authorship verification benchmark on WildChat-1M and PAN-20 regrouped per author, with author-disjoint 60/20/20 splits across three seeds. We train contrastive bi-encoders with triplet margin loss on DistilBERT, BERT, MiniLM-L6 and ELECTRA, under 100\% random imposters or a 50/30/20 mix of random, semi-hard and hard imposters mined by TF-IDF. Models trained on random imposters look strong (ROC-AUC above 0.95) but drop by around 10 points on WildChat against topic-similar imposters, suggesting they rely on topic and vocabulary rather than writing style only. Our contribution is to expose and quantify this failure mode and to provide a reproducible hardness-stratified benchmark; applying established hardness-aware training as a controlled mitigation closes most of the gap, lifting TAR@FAR=1\% on WildChat Hard from around 6--7\% to 20--22\% for BERT and DistilBERT with median messages-to-detect of one, and the same direction holds under a secondary SBERT miner. We release the benchmark construction and evaluation code.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:intro}
 
-LLM agents are quietly becoming one of the most privileged pieces of software on a user's machine. With protocols like Model Context Protocol \citep{anthropic2024mcp} an agent can be connected to tools that send the user's mail, push commits, edit files in the user's workspace and run a shell command, all on the basis of a few words typed into a chat box. While these capabilities substantially improve user productivity, they also introduce a persistent authentication problem: once an agent session has been authenticated, subsequent actions are typically authorized solely on the basis of continued session access. Consequently, any individual with access to an already authenticated interface—whether through device sharing, session exposure, or workstation compromise—may issue commands with the same privileges as the legitimate user. Existing agent architectures generally lack mechanisms for continuously verifying that the active operator remains consistent with the user who originally authenticated the session. Behavioral authorship verification refers to the task of determining whether two text segments originate from the same author based on patterns in their writing behavior across interaction histories, rather than relying solely on static stylistic features of isolated documents.
+LLM agents are quietly becoming one of the most privileged pieces of software on a user's machine. With protocols like Model Context Protocol \citep{anthropic2024mcp} an agent can be connected to tools that send the user's mail, push commits, edit files in the user's workspace and run a shell command, all on the basis of a few words typed into a chat box.\footnote{Our benchmark-construction scripts and evaluation code are available at \url{https://github.com/Muskankalonia/beyond-the-login-continuous-authorship-verification-LLM}.} While these capabilities substantially improve user productivity, they also introduce a persistent authentication problem: once an agent session has been authenticated, subsequent actions are typically authorized solely on the basis of continued session access. Consequently, any individual with access to an already authenticated interface—whether through device sharing, session exposure, or workstation compromise—may issue commands with the same privileges as the legitimate user. Existing agent architectures generally lack mechanisms for continuously verifying that the active operator remains consistent with the user who originally authenticated the session. Behavioral authorship verification refers to the task of determining whether two text segments originate from the same author based on patterns in their writing behavior across interaction histories, rather than relying solely on static stylistic features of isolated documents.
 
 Many surrounding layers already perform some form of identity or authorization check: the operating system authenticates the user at login or unlock, Multi-Factor Authentication (MFA) may be required for sensitive services, and browser or OAuth tokens authorize access to external applications. The LLM agent layer, however, usually has no equivalent check once a session is already open. The security community has identified related risks: the OWASP Top 10 for LLM Applications \citep{owasp2025llm} lists LLM06: Excessive Agency, the OWASP Top 10 for Agentic Applications \citep{owasp2026agentic} identifies ASI03: Identity and Privilege Abuse, MITRE ATT\&CK lists Impersonation \citep{mitre_t1656} as an established adversary technique, and NIST's AI Risk Management Framework \citep{nist2023airmf} emphasizes governance and accountability for AI systems. These frameworks motivate the risk, but they do not answer whether the problem is technically solvable at the agent layer using only the signal the agent reliably has: the text the user has typed. This paper investigates that question and, additionally, examines the amount of interaction context required for a verifier to make reliable authorship verification decisions.
 
-We model continuous authorship verification as a representation-learning problem over interaction text. Given a reference profile consisting of previously observed user messages and an incoming query, a text encoder maps both inputs into a shared embedding space. Profile-level and query-level representations are then compared using cosine similarity to estimate whether the incoming message is consistent with the enrolled user identity. We instantiate this idea with a contrastive bi-encoder trained using triplet margin loss. The model performs very well when the imposter corresponds to a uniformly random alternative user: on the random test regime, ROC-AUC rises above 0.9 even for MiniLM-L6, a 22.71M-parameter encoder. At first glance, the problem appears close to solved.
+We model continuous authorship verification as a representation-learning problem over interaction text. Given a reference \emph{profile} consisting of previously observed user messages and an incoming \emph{query} message, a text encoder maps both inputs into a shared embedding space. Profile-level and query-level representations are then compared using cosine similarity to estimate whether the incoming message is consistent with the enrolled user identity. We instantiate this idea with a contrastive bi-encoder trained using triplet margin loss. The model performs very well when the imposter corresponds to a uniformly random alternative user: on the random test regime, ROC-AUC rises above 0.9 even for MiniLM-L6, a 22.71M-parameter encoder. At first glance, the problem appears close to solved.
 
 But a uniformly random imposter is not the hardest adversary an LLM agent may face. A real imposter may share a workplace, family, or social circle with the user; they may know the same projects, codebases, or clients; and the topics they discuss may overlap substantially with those of the legitimate user. When we replace the random imposter with another real user mined for topical similarity using TF-IDF over character and word $n$-grams, performance drops sharply: on WildChat, ROC-AUC falls by about 10 points on the hardest 5\% of imposters for several encoders. The model that looked excellent on random imposters becomes much less reliable against topic-similar imposters, suggesting that it relies partly on topic and vocabulary rather than writing style alone. This topic-vs-style gap is the empirical core of the paper.
 
 Because the failure mode is security-relevant, we evaluate at security operating points rather than relying only on ROC-AUC. We report \textbf{TAR@FAR=1\%} (fraction of genuine users accepted at a fixed 1\% imposter false-accept rate), \textbf{FAR@FRR=1\%} (the symmetric metric), EER, the robustness gap between random and hard imposters, and streaming metrics over the first three query messages (catch@3, median messages-to-detect). The full metric list and security interpretation is in Section~\ref{sec:expsetup}. Our key finding is that replacing purely random training negatives with a 50/30/20 mix of random, semi-hard and hard imposters substantially reduces the random-to-hard robustness gap, especially on WildChat: TAR@FAR=1\% on WildChat Hard rises from 6-7\% under random-only training to 20-22\% under hardness-aware training for BERT and DistilBERT, while the median messages-to-detect remains one. We build this benchmark from WildChat-1M \citep{zhao2024wildchat} as the primary dataset and PAN-20 \citep{bevendorff2020overview} regrouped at the author level as a secondary, with author-disjoint 60/20/20 splits across three seeds and a 70/30 profile-query split within each author. We release the benchmark construction scripts and evaluation code.
+
+\noindent\textbf{Contributions.} We do not propose a new negative-sampling algorithm; hard-negative mining is well established in metric learning and dense retrieval \citep{schroff2015facenet,xiong2021ance,robinson2021hard}. Instead, we (i) identify a security-relevant evaluation gap: random-imposter tests overestimate robustness by letting continuous authorship verifiers exploit topic and vocabulary shortcuts; (ii) release a reproducible, hardness-stratified profile-query benchmark with author-disjoint splits and security-oriented metrics (TAR@FAR, FAR@FRR, EER, catch@3, median messages-to-detect); and (iii) show that hardness-aware training, used as a controlled mitigation, narrows but does not close the gap across four encoders, two datasets, strict operating points, and two independent hardness miners.
 
 \section{Threat Model}
 \label{sec:threat}
@@ -82,7 +85,7 @@ Because the failure mode is security-relevant, we evaluate at security operating
 \begin{figure*}[t]
 \centering
 \resizebox{0.95\textwidth}{!}{\input{figures/system_overview}}
-\caption{System overview. A user interacts with an already-authenticated LLM agent session; the verifier has no prior knowledge of whether the active user is the legitimate account holder or an adversary. The in-session verifier (rounded box) encodes the enrolled profile $\{p_1,\dots,p_N\}$ and the incoming message $q$ with a shared bi-encoder $\phi$, scores their pooled cosine in $[0,1]$, and feeds the score to a tiered action gate (Section~\ref{sec:deployment}): low-trust actions are allowed silently, medium-trust actions require in-app confirmation when the score is below threshold, and high-trust actions require a fresh OS-level re-authentication.}
+\caption{System overview. A user interacts with an already-authenticated LLM agent session; the verifier has no prior knowledge of whether the active user is the legitimate account holder or an adversary. The in-session verifier (rounded box) encodes the enrolled profile $\{p_1,\dots,p_N\}$ and the incoming message $q$ \emph{independently} with the same shared-weight bi-encoder $\phi$ (there is no joint cross-encoder), scores their pooled cosine in $[0,1]$, and feeds the score to a tiered action gate (Section~\ref{sec:deployment}): low-trust actions are allowed silently, medium-trust actions require in-app confirmation when the score is below threshold, and high-trust actions require a fresh OS-level re-authentication.}
 \label{fig:system_overview}
 \end{figure*}
 
@@ -143,11 +146,13 @@ Train / Val / Test         & 5090/1697/1696 & 9880/3294/3293 \\
 
 \noindent\textbf{Hardness mining.} A hard imposter is a different identity whose text looks similar to the anchor's under an identity-agnostic similarity function. For each identity $A$ in a split we rank every other identity $B$ by $\cos(\phi(\text{profile}_A), \phi(\text{query}_B))$. The top 5\% forms the hard bucket, ranks 5-30\% the semi-hard bucket, and the random bucket is sampled uniformly from other identities without similarity weighting. For each triplet we sample a negative identity from the requested bucket and then a uniformly random text from that identity's pool, rather than the single most similar text, which would concentrate gradients on a few identities. The \textit{primary miner} is a TF-IDF cosine model combining character 3-5-grams and word 1-2-grams ($\min\_df{=}1$, word features capped at 200k, char at 300k), trained separately within each split on that split's profile and query texts. The \textit{secondary miner} is \texttt{sentence-transformers/all-MiniLM-L6-v2} \citep{reimers2019sentencebert}, used as a fixed encoder with mean pooling and L2 normalization. Hardness indexes are cached per (dataset, seed, split).
 
+\noindent\textbf{Primary miner, step by step.} Concretely, within each split the TF-IDF miner (1) fits a character 3-5-gram and word 1-2-gram TF-IDF vectorizer on that split's profile and query texts ($\min\_df{=}1$, word vocabulary capped at 200k features and character vocabulary at 300k); (2) L2-normalizes the resulting vectors; (3) for each anchor identity $A$, computes the cosine similarity between $A$'s profile vector and every other identity $B$'s query vector; and (4) ranks the other identities by this similarity, assigning the top 5\% to the hard bucket and ranks 5-30\% to the semi-hard bucket. The vectorizer is fit separately per split, so no text from another split informs a split's hardness ranking, and the resulting indexes are cached per (dataset, seed, split). The exact configuration and implementation are included in the released code.
+
 \noindent\textbf{Contrastive bi-encoder and triplet loss.} A single transformer backbone with shared weights encodes the anchor, positive and negative texts independently. We load each encoder from \texttt{AutoModel} rather than \texttt{AutoModelForSequenceClassification}: the latter adds a task-specific classification head, whereas we need the encoder representation directly. For every text we mean-pool the last hidden state weighted by the attention mask and L2-normalize the pooled vector; we add no projection head, no custom special tokens and no prefix prompts, and use the stock tokenizer with $\text{max\_length}=256$. We train with triplet margin loss in Euclidean space with margin $0.3$. Because embeddings are L2-normalized, squared Euclidean distance is monotonic in cosine similarity ($\|a-b\|^2 = 2 - 2\cos(a,b)$), so the loss encourages anchor-positive cosine to exceed anchor-negative cosine, aligning training with the cosine-based evaluation score. We do not use in-batch negatives, which keeps the fraction of hard negatives a property of the sampler rather than the batch. Triplets are resampled every epoch with a per-epoch seed derived from the run seed.
 
 \noindent\textbf{Two training regimes.} We compare two ways of choosing the training negatives: (i) \textbf{random-only}, with 100\% random negatives; and (ii) \textbf{mixed}, with 50\% random, 30\% semi-hard and 20\% hard negatives. The mixed proportions match the mixed test composition by design. The two regimes differ only in negative composition; everything else is held fixed, which lets us attribute any difference to the negative composition.
 
-\noindent\textbf{Test protocol and scoring.} Each profile text is encoded independently, embeddings are averaged and re-L2-normalized to give one profile embedding per author, and the same is done for the query at each prefix length. The verification score is $(\cos+1)/2$, which is monotonic in cosine and preserves rank-based metrics. The decision threshold is selected once on mixed-regime validation predictions by maximising F1 and applied across all four test regimes: \textbf{random} (100\% random imposters), \textbf{semi-hard} (100\% from the 5-30\% bucket), \textbf{hard} (100\% from the top 5\% bucket), and \textbf{mixed} (50/30/20, the realistic deployment composition). The positives are identical across regimes, so any difference is attributable to imposter hardness. To check that our findings are not an artifact of the TF-IDF definition of ``hard'', we also run a secondary SBERT-miner ablation on DistilBERT and BERT in three configurations (random-only with SBERT test imposters; mixed TF-IDF train with SBERT test imposters; mixed SBERT on both sides).
+\noindent\textbf{Test protocol and scoring.} Each profile text is encoded independently, embeddings are averaged and re-L2-normalized to give one profile embedding per author, and the same is done for the query at each prefix length. The verification score is $(\cos+1)/2$, which is monotonic in cosine and preserves rank-based metrics. We score with fixed cosine rather than a learned pair scorer because cosine is symmetric, parameter-free, and generalizes to authors unseen during training, which matches our author-disjoint protocol; we discuss learned symmetric scorers as a future ablation in Section~\ref{sec:conclusion}. The decision threshold is selected once on mixed-regime validation predictions by maximising F1 and applied across all four test regimes: \textbf{random} (100\% random imposters), \textbf{semi-hard} (100\% from the 5-30\% bucket), \textbf{hard} (100\% from the top 5\% bucket), and \textbf{mixed} (50/30/20, the realistic deployment composition). The positives are identical across regimes, so any difference is attributable to imposter hardness. To check that our findings are not an artifact of the TF-IDF definition of ``hard'', we also run a secondary SBERT-miner ablation on DistilBERT and BERT in three configurations (random-only with SBERT test imposters; mixed TF-IDF train with SBERT test imposters; mixed SBERT on both sides).
 
 \section{Experimental Setup}
 \label{sec:expsetup}
@@ -156,7 +161,7 @@ Train / Val / Test         & 5090/1697/1696 & 9880/3294/3293 \\
 
 \noindent\textbf{Hyperparameters.} Triplets per identity per epoch are fixed at 16, giving 81{,}440 and 158{,}080 triplets per training epoch on PAN ($5{,}090 \times 16$) and WildChat ($9{,}880 \times 16$). Texts are char-truncated to 2{,}000 chars and tokenized at $\text{max\_length}=256$ with truncation. Train batch size is 16 for DistilBERT and MiniLM, and 8 with gradient accumulation 2 for BERT and ELECTRA (effective batch 16, fits within 8\,GB VRAM); eval batch size is 32 for DistilBERT/MiniLM and 16 for BERT/ELECTRA. Optimizer is AdamW with $\text{lr}=2\!\times\!10^{-5}$, weight decay 0.01, no warmup, gradient clipping at L2-norm 1.0, and FP16 mixed precision. We train for 3 epochs and select the best epoch by validation ROC-AUC, using the \textit{mixed} validation regime for both training regimes so that both pick their best checkpoint against the same difficulty distribution.
 
-\noindent\textbf{Metrics.} We frame the task as a security problem, so alongside threshold-free summaries we report operating-point metrics. ROC-AUC and PR-AUC are the rank-based summaries; F1 is computed at the validation-selected threshold, held fixed across test regimes and prefix lengths; EER is the operating point where false-accept and false-reject rates meet. \textbf{TAR@FAR=1\%} answers ``if we are only willing to let 1 imposter in 100 slip through, what fraction of legitimate users do we accept?'' \textbf{FAR@FRR=1\%} answers the symmetric question. For streaming detection we compute \textbf{catch@3} (fraction of imposters whose 3-message score falls below threshold), genuine survival rate at 3, and the median and P90 messages-to-detect among imposters that are caught.
+\noindent\textbf{Metrics.} We frame the task as a security problem, so alongside threshold-free summaries we report operating-point metrics. We treat genuine (same-author) pairs as the positive class throughout, so True Accept Rate (TAR) equals the true-positive rate (TPR) and False Accept Rate (FAR) equals the false-positive rate (FPR); the reverse convention, with imposters as positive, maps these to TNR and FNR. ROC-AUC (area under the receiver-operating-characteristic curve) summarizes ranking quality across all thresholds and is invariant to class balance; PR-AUC (area under the precision-recall curve) summarizes the precision-recall trade-off and, unlike ROC-AUC, depends on class prevalence. Because our evaluation set is balanced by construction (one genuine and one imposter pair per author), the two are numerically close here and we report both as complementary rank summaries; a deployment with its own genuine/imposter prevalence should recompute PR-AUC at that operating prevalence. \textbf{F1} is computed at the validation-selected threshold, held fixed across test regimes and prefix lengths. \textbf{EER} (Equal Error Rate) is the operating point where false-accept and false-reject rates meet. \textbf{TAR@FAR=1\%} answers ``if we are only willing to let 1 imposter in 100 slip through, what fraction of legitimate users do we accept?''; \textbf{FAR@FRR=1\%} answers the symmetric question (what fraction of imposters we accept when only 1 in 100 genuine users is rejected). For streaming detection over the first query messages we report \textbf{catch@3} (fraction of imposters whose averaged 3-message score falls below threshold), the genuine survival rate at 3 (fraction of genuine users still accepted after three messages), and \textbf{median messages-to-detect}: among imposters that are eventually caught, the median first prefix $k\in\{1,3\}$ at which the score falls below the fixed threshold. Because we evaluate only two prefix lengths, messages-to-detect is a coarse two-point measure (its value is $1$ or $3$); we therefore report it alongside catch@3 rather than on its own, and also report its P90.
 
 \noindent\textbf{Hardware and reproducibility.} All contrastive experiments were run on a single workstation with an RTX 4060\,Ti (8\,GB VRAM), Intel i9-13900K, and 31\,GB RAM; we use FP16 mixed precision to fit BERT and ELECTRA. Each (dataset, model, regime, seed) contrastive cell takes 2-3 hours including evaluation on all four test regimes. We do not sweep hyperparameters: the per-model-class settings above are held fixed across all cells. We release the source code, preprocessing and split-generation scripts, configs, evaluation code, and result JSONs; raw text files are not redistributed because both datasets contain user-sensitive content, but splits can be reconstructed deterministically from the released seeds.
 
@@ -169,7 +174,7 @@ All aggregate numbers in the main tables are means over seeds 13, 21 and 42; sam
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3pt}
-\begin{tabular}{l l rr rr rr rr}
+\begin{tabular}{l l r r @{\hspace{1.7em}} r r @{\hspace{1.7em}} r r @{\hspace{1.7em}} r r}
 \toprule
 & & \multicolumn{2}{c}{\textbf{ROC-AUC}} & \multicolumn{2}{c}{\textbf{TAR@FAR=1\%}} & \multicolumn{2}{c}{\textbf{catch@3}} & \multicolumn{2}{c}{\textbf{EER}} \\
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
@@ -191,19 +196,19 @@ WildChat & Frozen ELECTRA    & \multicolumn{2}{c}{62.4} & \multicolumn{2}{c}{\ph
 \midrule
 \multicolumn{10}{l}{\textit{Contrastive fine-tuning}} \\
 \multirow{4}{*}{PAN-20}
- & DistilBERT & 93.4 & 93.9 & 43.9 & 46.1 & 74.9 & 77.4 & 14.4 & 13.9 \\
- & BERT       & 94.2 & 94.5 & 48.8 & 50.9 & 76.7 & 79.1 & 13.3 & 13.2 \\
- & MiniLM     & 92.0 & 92.2 & 39.1 & 40.7 & 73.4 & 73.7 & 16.0 & 16.0 \\
- & ELECTRA    & 94.2 & 94.7 & 47.1 & 50.6 & 75.7 & 78.6 & 13.2 & 12.9 \\
+ & DistilBERT & 93.4 & \textbf{93.9} & 43.9 & \textbf{46.1} & 74.9 & \textbf{77.4} & 14.4 & \textbf{13.9} \\
+ & BERT       & 94.2 & \textbf{94.5} & 48.8 & \textbf{50.9} & 76.7 & \textbf{79.1} & 13.3 & \textbf{13.2} \\
+ & MiniLM     & 92.0 & \textbf{92.2} & 39.1 & \textbf{40.7} & 73.4 & \textbf{73.7} & 16.0 & 16.0 \\
+ & ELECTRA    & 94.2 & \textbf{94.7} & 47.1 & \textbf{50.6} & 75.7 & \textbf{78.6} & 13.2 & \textbf{12.9} \\
 \midrule
 \multirow{4}{*}{WildChat}
- & DistilBERT & 86.7 & 89.6 & \phantom{0}7.3 & 20.3 & 65.2 & 69.1 & 19.9 & 18.3 \\
- & BERT       & 86.4 & 89.8 & \phantom{0}6.2 & 22.3 & 65.0 & 69.6 & 20.1 & 18.3 \\
- & MiniLM     & 89.0 & 90.6 & 21.7 & 23.7 & 67.5 & 69.8 & 18.8 & 17.4 \\
- & ELECTRA    & 85.1 & 87.6 & \phantom{0}4.3 & \phantom{0}9.9 & 62.4 & 65.7 & 21.3 & 19.6 \\
+ & DistilBERT & 86.7 & \textbf{89.6} & \phantom{0}7.3 & \textbf{20.3} & 65.2 & \textbf{69.1} & 19.9 & \textbf{18.3} \\
+ & BERT       & 86.4 & \textbf{89.8} & \phantom{0}6.2 & \textbf{22.3} & 65.0 & \textbf{69.6} & 20.1 & \textbf{18.3} \\
+ & MiniLM     & 89.0 & \textbf{90.6} & 21.7 & \textbf{23.7} & 67.5 & \textbf{69.8} & 18.8 & \textbf{17.4} \\
+ & ELECTRA    & 85.1 & \textbf{87.6} & \phantom{0}4.3 & \phantom{0}\textbf{9.9} & 62.4 & \textbf{65.7} & 21.3 & \textbf{19.6} \\
 \bottomrule
 \end{tabular}
-\caption{Main results on the \textbf{Hard} test regime (top 5\% similarity imposters), means over seeds 13/21/42 (\%). ROC-AUC, TAR@FAR=1\%, and EER are computed over pooled $k{=}1$ and $k{=}3$ predictions; catch@3 uses the $k{=}3$ prefix. Reference baselines (top block) are evaluated without contrastive fine-tuning; their single score per metric is shown under both RO and Mix columns via \texttt{\textbackslash multicolumn}. ``SBERT-mpnet'' uses \texttt{sentence-transformers/all-mpnet-base-v2}; ``Frozen MiniLM'' uses \texttt{sentence-transformers/all-MiniLM-L6-v2}, a sentence-similarity-pretrained checkpoint. RO = random-only training, Mix = 50/30/20 random/semi-hard/hard training. Hardness-aware training delivers the largest gains on WildChat, particularly on TAR@FAR=1\%. See Appendix~\ref{sec:appendix_full} for the full per-regime breakdown with sample standard deviations.}
+\caption{Main results on the \textbf{Hard} test regime (top 5\% similarity imposters), means over seeds 13/21/42 (\%). ROC-AUC, TAR@FAR=1\%, and EER are computed over pooled $k{=}1$ and $k{=}3$ predictions; catch@3 uses the $k{=}3$ prefix. Reference baselines (top block) are evaluated without contrastive fine-tuning; their single score per metric is shown under both RO and Mix columns via \texttt{\textbackslash multicolumn}. ``SBERT-mpnet'' uses \texttt{sentence-transformers/all-mpnet-base-v2}; ``Frozen MiniLM'' uses \texttt{sentence-transformers/all-MiniLM-L6-v2}, a sentence-similarity-pretrained checkpoint. RO = random-only training, Mix = 50/30/20 random/semi-hard/hard training. For each RO/Mix pair we \textbf{bold} the better value (higher for ROC-AUC, TAR@FAR=1\% and catch@3; lower for EER). Hardness-aware training delivers the largest gains on WildChat, particularly on TAR@FAR=1\%. See Appendix~\ref{sec:appendix_full} for the full per-regime breakdown with sample standard deviations.}
 \label{tab:main_hard}
 \end{table*}
 
@@ -284,14 +289,16 @@ The results in this paper indicate that the verifier is not strong enough to be 
 
 \noindent\textbf{Action categories.} Following OWASP LLM06's emphasis on minimizing agency and requiring human approval for high-impact actions, we organize agent actions by consequence into three deployment tiers. \textit{Low-trust} actions are non-sensitive reads and short responses that do not change persistent state (answering a factual question, fetching a public URL), where a wrong verdict is recoverable in both directions. \textit{Medium-trust} actions change persistent state in visible and recoverable ways (drafting an email but not sending it, creating a calendar event, editing a file in the user's workspace, committing code that has not been pushed). \textit{High-trust} actions carry incident-level risk (sending email, transferring funds, running shell commands, modifying access tokens, posting publicly in the user's voice, or calling an MCP tool that changes an external system).
 
-\noindent\textbf{Suggested policy.} For low-trust actions, the verifier is run silently and its score is logged for telemetry; no blocking is performed. For medium-trust actions, the verifier is used as a risk signal, with lightweight step-up confirmation required when the score falls below a threshold. For high-trust actions, the verifier is not sufficient on its own; fresh OS-level authentication (biometric, password, or hardware token), re-enrollment of the agent session, or a delay sufficient for session expiry and screen-lock mechanisms to trigger is required. The verifier's role at this tier is to flag the session and raise the friction the legitimate user has to clear, not to make the trust call by itself. Because the verifier scores every incoming message, a rolling three-message monitor can escalate the next medium-trust action to high-trust treatment if the score drops below threshold mid-session. At the strict 1\% false-accept budget on WildChat Hard imposters, the verifier rejects roughly 80\% of legitimate-user attempts, which is too friction-heavy for it to gate medium-trust actions on its own; we expect adaptive thresholds, longer enrollment profiles, and combining text-based verification with behavioral biometrics to lift the operating-point numbers high enough for medium-trust gating in follow-up work.
+\noindent\textbf{Suggested policy.} For low-trust actions, the verifier is run silently and its score is logged for telemetry; no blocking is performed. For medium-trust actions, the verifier is used as a risk signal, with lightweight step-up confirmation required when the score falls below a threshold. For high-trust actions, the verifier is not sufficient on its own; fresh OS-level authentication (biometric, password, or hardware token), re-enrollment of the agent session, or a delay sufficient for session expiry and screen-lock mechanisms to trigger is required. The verifier's role at this tier is to flag the session and raise the friction the legitimate user has to clear, not to make the trust call by itself. Because the verifier scores every incoming message, a rolling three-message monitor can escalate the next medium-trust action to high-trust treatment if the score drops below threshold mid-session. At a strict 1\% false-accept budget on WildChat Hard, the verifier still rejects roughly 80\% of legitimate attempts, too friction-heavy to gate medium-trust actions on its own; adaptive thresholds, longer profiles, and behavioral biometrics are the natural levers.
+
+\noindent\textbf{Profile updating and drift.} Our benchmark assumes a fixed enrolled profile and therefore does not specify a deployment refresh schedule. In practice, profiles may need periodic updates as writing style changes, but indiscriminately adding accepted messages is unsafe: a single false accept can gradually poison the enrolled representation. A safer policy would refresh cached profile embeddings only with messages that pass a high-confidence check or follow fresh OS-level re-authentication, while retaining a stable historical component and bounding the recent-message window; the globally trained bi-encoder weights remain fixed. We leave refresh frequency and poisoning-resistant update policies to future work. Online cost remains low: with profile embeddings cached at enrollment, each new message requires only one forward pass and one cosine comparison.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-We investigate whether a text encoder can be used as an agent-layer identity check for LLM-driven desktop agents, using a profile–query authorship verification benchmark derived from WildChat-1M and a regrouped PAN-20. Fine-tuned contrastive bi-encoders look strong against random imposters by ROC-AUC (above 0.95 on both datasets), but rely heavily on topic and vocabulary: when the imposter shares topic with the genuine user, WildChat ROC-AUC drops by about 8-11 points across the four encoders and TAR@FAR=1\% collapses into the single digits for BERT, DistilBERT and ELECTRA. Training with a 50/30/20 mix of random, semi-hard and hard imposters mined by an identity-agnostic TF-IDF similarity substantially reduces this gap on WildChat and improves robustness on PAN, with the largest absolute gains landing on TAR@FAR=1\% (WildChat Hard rising from 6-7\% to 20-22\% for BERT and DistilBERT) rather than threshold-free averages. The direction holds under a secondary SBERT cross-miner ablation. The absolute numbers are still not strong enough for the verifier to be a deployment's only line of defense, so we recommend the tiered policy in Section~\ref{sec:deployment}.
+We study whether a text encoder can serve as an agent-layer identity check for LLM-driven desktop agents, using a profile–query authorship verification benchmark from WildChat-1M and a regrouped PAN-20. Fine-tuned contrastive bi-encoders look strong against random imposters (ROC-AUC above 0.95) but rely heavily on topic and vocabulary, so WildChat ROC-AUC drops 8--11 points and TAR@FAR=1\% collapses into the single digits once the imposter shares the user's topic. A 50/30/20 mix of random, semi-hard and hard imposters substantially reduces this gap, with the largest gains on TAR@FAR=1\% (WildChat Hard 6--7\% $\to$ 20--22\% for BERT and DistilBERT) and the direction holding under a secondary SBERT miner. The absolute numbers are still not strong enough for the verifier to be a deployment's only line of defense, so we recommend the tiered policy in Section~\ref{sec:deployment}.
 
-We consider three follow-up points. First, a stronger adversary model where the imposter uses an LLM to actively rewrite messages in the user's style; our current imposters are real topic-similar users, not adversarial mimics. Second, longer enrollment profiles plus behavioral signals (keystroke timing, action patterns) to push TAR@FAR=1\% high enough for medium-trust gating. Third, scaling to larger encoders and multilingual settings beyond English. We release the benchmark construction scripts and evaluation code so all three can be reproduced from the same setup.
+We consider several follow-up points. First, a stronger adversary model where the imposter uses an LLM to actively rewrite messages in the user's style; our current imposters are real topic-similar users, not adversarial mimics. Second, longer enrollment profiles plus behavioral signals (keystroke timing, action patterns) to push TAR@FAR=1\% high enough for medium-trust gating. Third, scaling to larger encoders and multilingual settings beyond English. Fourth, per-user calibration or lightweight adaptation on top of the globally trained encoder, which may capture user-specific writing cues that a shared model misses. Fifth, replacing the fixed cosine score with a symmetric learned scorer over embedding pairs, for example over the features $[\,|a-b|;\,a\odot b\,]$, which could model richer interactions provided it preserves symmetry and does not learn corpus-specific pair shortcuts. We release the benchmark construction scripts and evaluation code so these can be reproduced from the same setup.
 
 \section*{Limitations}
 
@@ -304,6 +311,8 @@ The hard imposters in our datasets are real authors or normal users and not huma
 All experiments were run on a single 8\,GB GPU, which limits us to models under approximately 200M parameters at our sequence length. We evaluate on four encoders (DistilBERT, BERT-base, MiniLM-L6 and ELECTRA-base) and the SBERT cross-miner ablation is run on two of these. We cannot verify whether the robustness gap closes at scale given the hardware constraint.
 
 WildChat was collected in the early days when LLMs were just being released and most conversations are about coding help or short drafting tasks. It does not contain the chats where users ask an LLM to perform operations via MCP servers with access to delete files, read emails or access personal accounts, so a real deployment threat model is sharper than what we directly study. Related to this, we do not study the risk scores of imposter messages to determine how dangerous an accepted imposter would be; that is planned for follow-up work.
+
+These constraints mean our findings should be read within the evaluated setting (English-only text, non-adaptive topic-similar imposters, encoders below 200M parameters) and not assumed to transfer directly to multilingual users, style-mimicking adversaries, or substantially larger encoders.
 
 \section*{Ethics Statement}
 
@@ -358,13 +367,19 @@ This appendix reports the main metrics broken down by dataset, encoder, test reg
 \midrule
 Random    & ROC-AUC    & 96.78$\pm$0.43 & 96.53$\pm$0.56 & $-$0.25 \\
 Random    & PR-AUC     & 96.89$\pm$0.41 & 96.60$\pm$0.50 & $-$0.28 \\
+Random    & F1         & 90.39$\pm$0.80 & 89.80$\pm$1.10 & $-$0.58 \\
 Random    & EER        & \phantom{0}9.60$\pm$0.83 & 10.16$\pm$1.09 & $+$0.56 \\
 Random    & FAR@FRR1\% & 40.85$\pm$3.82 & 39.87$\pm$5.93 & $-$0.98 \\
+Random    & TAR@FAR1\% & 62.78$\pm$2.80 & 59.85$\pm$2.14 & $-$2.94 \\
+Random    & catch@3    & 88.88$\pm$2.26 & 87.70$\pm$1.20 & $-$1.18 \\
 \midrule
 Semi-hard & ROC-AUC    & 95.47$\pm$0.24 & 95.54$\pm$0.41 & $+$0.07 \\
 Semi-hard & PR-AUC     & 95.67$\pm$0.11 & 95.65$\pm$0.34 & $-$0.02 \\
+Semi-hard & F1         & 88.39$\pm$0.28 & 88.49$\pm$0.61 & $+$0.10 \\
 Semi-hard & EER        & 11.60$\pm$0.40 & 11.49$\pm$0.71 & $-$0.11 \\
 Semi-hard & FAR@FRR1\% & 52.16$\pm$4.21 & 48.44$\pm$5.42 & $-$3.72 \\
+Semi-hard & TAR@FAR1\% & 56.08$\pm$1.90 & 55.62$\pm$2.45 & $-$0.46 \\
+Semi-hard & catch@3    & 83.37$\pm$1.47 & 84.55$\pm$2.71 & $+$1.18 \\
 \midrule
 Hard      & ROC-AUC    & 93.36$\pm$0.24 & 93.95$\pm$0.22 & $+$0.59 \\
 Hard      & PR-AUC     & 93.60$\pm$0.19 & 94.14$\pm$0.12 & $+$0.54 \\
@@ -376,10 +391,11 @@ Hard      & catch@3    & 74.94$\pm$1.68 & 77.44$\pm$1.47 & $+$2.50 \\
 \midrule
 Mixed     & ROC-AUC    & 95.67$\pm$0.44 & 95.65$\pm$0.69 & $-$0.02 \\
 Mixed     & PR-AUC     & 95.85$\pm$0.43 & 95.77$\pm$0.68 & $-$0.08 \\
+Mixed     & F1         & 88.64$\pm$0.47 & 88.75$\pm$0.75 & $+$0.12 \\
 Mixed     & EER        & 11.47$\pm$0.54 & 11.40$\pm$0.93 & $-$0.07 \\
 Mixed     & FAR@FRR1\% & 49.38$\pm$4.46 & 46.08$\pm$6.21 & $-$3.30 \\
-Mixed     & catch@3    & 84.00$\pm$1.81 & 84.67$\pm$1.78 & $+$0.67 \\
 Mixed     & TAR@FAR1\% & 55.67$\pm$3.11 & 55.40$\pm$5.19 & $-$0.27 \\
+Mixed     & catch@3    & 84.00$\pm$1.81 & 84.67$\pm$1.78 & $+$0.67 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{PAN-20, DistilBERT-base-uncased (66M).}
@@ -388,20 +404,25 @@ Mixed     & TAR@FAR1\% & 55.67$\pm$3.11 & 55.40$\pm$5.19 & $-$0.27 \\
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-
 \begin{tabular}{l l c c c}
 \toprule
 \textbf{Test} & \textbf{Metric} & \textbf{RO} & \textbf{Mix} & \textbf{$\Delta$} \\
 \midrule
 Random    & ROC-AUC    & 97.10$\pm$0.39 & 96.97$\pm$0.24 & $-$0.13 \\
 Random    & PR-AUC     & 97.22$\pm$0.34 & 97.03$\pm$0.25 & $-$0.19 \\
+Random    & F1         & 91.02$\pm$0.74 & 90.56$\pm$0.63 & $-$0.46 \\
 Random    & EER        & \phantom{0}9.00$\pm$0.74 & \phantom{0}9.34$\pm$0.42 & $+$0.33 \\
 Random    & FAR@FRR1\% & 38.77$\pm$4.49 & 34.94$\pm$2.80 & $-$3.82 \\
+Random    & TAR@FAR1\% & 63.74$\pm$2.35 & 62.15$\pm$4.60 & $-$1.59 \\
+Random    & catch@3    & 89.39$\pm$2.55 & 89.64$\pm$1.05 & $+$0.26 \\
 \midrule
 Semi-hard & ROC-AUC    & 95.99$\pm$0.36 & 96.17$\pm$0.57 & $+$0.18 \\
 Semi-hard & PR-AUC     & 96.18$\pm$0.25 & 96.33$\pm$0.54 & $+$0.14 \\
+Semi-hard & F1         & 89.09$\pm$0.65 & 89.28$\pm$1.03 & $+$0.19 \\
 Semi-hard & EER        & 10.90$\pm$0.58 & 10.71$\pm$1.01 & $-$0.19 \\
 Semi-hard & FAR@FRR1\% & 48.44$\pm$4.93 & 42.75$\pm$3.88 & $-$5.69 \\
+Semi-hard & TAR@FAR1\% & 59.22$\pm$1.97 & 61.17$\pm$3.56 & $+$1.96 \\
+Semi-hard & catch@3    & 84.14$\pm$1.99 & 86.50$\pm$0.48 & $+$2.36 \\
 \midrule
 Hard      & ROC-AUC    & 94.18$\pm$0.39 & 94.54$\pm$0.43 & $+$0.35 \\
 Hard      & PR-AUC     & 94.38$\pm$0.49 & 94.69$\pm$0.50 & $+$0.30 \\
@@ -413,10 +434,11 @@ Hard      & catch@3    & 76.67$\pm$1.66 & 79.07$\pm$1.84 & $+$2.40 \\
 \midrule
 Mixed     & ROC-AUC    & 96.10$\pm$0.46 & 96.00$\pm$0.64 & $-$0.10 \\
 Mixed     & PR-AUC     & 96.26$\pm$0.44 & 96.06$\pm$0.64 & $-$0.20 \\
+Mixed     & F1         & 89.25$\pm$0.83 & 89.16$\pm$1.17 & $-$0.09 \\
 Mixed     & EER        & 10.82$\pm$0.78 & 10.94$\pm$1.00 & $+$0.12 \\
 Mixed     & FAR@FRR1\% & 46.06$\pm$4.79 & 41.32$\pm$3.29 & $-$4.74 \\
-Mixed     & catch@3    & 84.65$\pm$1.92 & 85.61$\pm$0.81 & $+$0.96 \\
 Mixed     & TAR@FAR1\% & 59.06$\pm$2.88 & 56.49$\pm$3.68 & $-$2.57 \\
+Mixed     & catch@3    & 84.65$\pm$1.92 & 85.61$\pm$0.81 & $+$0.96 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{PAN-20, BERT-base-uncased (110M).}
@@ -433,13 +455,19 @@ Mixed     & TAR@FAR1\% & 59.06$\pm$2.88 & 56.49$\pm$3.68 & $-$2.57 \\
 \midrule
 Random    & ROC-AUC    & 95.64$\pm$0.60 & 95.03$\pm$0.44 & $-$0.60 \\
 Random    & PR-AUC     & 95.77$\pm$0.58 & 95.16$\pm$0.45 & $-$0.60 \\
+Random    & F1         & 88.75$\pm$1.00 & 87.74$\pm$0.50 & $-$1.02 \\
 Random    & EER        & 11.22$\pm$1.01 & 12.34$\pm$0.67 & $+$1.12 \\
 Random    & FAR@FRR1\% & 46.31$\pm$5.22 & 50.59$\pm$2.50 & $+$4.27 \\
+Random    & TAR@FAR1\% & 53.98$\pm$3.60 & 51.40$\pm$1.53 & $-$2.58 \\
+Random    & catch@3    & 86.79$\pm$1.56 & 84.00$\pm$1.10 & $-$2.79 \\
 \midrule
 Semi-hard & ROC-AUC    & 94.17$\pm$0.58 & 94.09$\pm$0.26 & $-$0.08 \\
 Semi-hard & PR-AUC     & 94.41$\pm$0.37 & 94.32$\pm$0.17 & $-$0.09 \\
+Semi-hard & F1         & 86.77$\pm$0.81 & 86.57$\pm$0.50 & $-$0.19 \\
 Semi-hard & EER        & 13.26$\pm$0.86 & 13.71$\pm$0.53 & $+$0.45 \\
 Semi-hard & FAR@FRR1\% & 55.90$\pm$6.78 & 56.72$\pm$1.85 & $+$0.83 \\
+Semi-hard & TAR@FAR1\% & 48.48$\pm$1.81 & 48.87$\pm$0.61 & $+$0.39 \\
+Semi-hard & catch@3    & 81.53$\pm$0.48 & 81.03$\pm$1.07 & $-$0.49 \\
 \midrule
 Hard      & ROC-AUC    & 92.03$\pm$0.60 & 92.22$\pm$0.26 & $+$0.20 \\
 Hard      & PR-AUC     & 92.30$\pm$0.65 & 92.52$\pm$0.36 & $+$0.23 \\
@@ -451,10 +479,11 @@ Hard      & catch@3    & 73.45$\pm$0.70 & 73.74$\pm$0.53 & $+$0.29 \\
 \midrule
 Mixed     & ROC-AUC    & 94.39$\pm$0.89 & 94.14$\pm$0.54 & $-$0.25 \\
 Mixed     & PR-AUC     & 94.56$\pm$0.87 & 94.30$\pm$0.52 & $-$0.26 \\
+Mixed     & F1         & 87.05$\pm$1.10 & 86.85$\pm$1.01 & $-$0.20 \\
 Mixed     & EER        & 13.01$\pm$1.20 & 13.35$\pm$0.91 & $+$0.33 \\
 Mixed     & FAR@FRR1\% & 53.39$\pm$7.06 & 56.08$\pm$1.62 & $+$2.69 \\
-Mixed     & catch@3    & 82.04$\pm$1.62 & 81.27$\pm$2.08 & $-$0.77 \\
 Mixed     & TAR@FAR1\% & 48.09$\pm$6.58 & 47.40$\pm$2.07 & $-$0.70 \\
+Mixed     & catch@3    & 82.04$\pm$1.62 & 81.27$\pm$2.08 & $-$0.77 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{PAN-20, MiniLM-L6 (22.71M).}
@@ -463,20 +492,25 @@ Mixed     & TAR@FAR1\% & 48.09$\pm$6.58 & 47.40$\pm$2.07 & $-$0.70 \\
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-
 \begin{tabular}{l l c c c}
 \toprule
 \textbf{Test} & \textbf{Metric} & \textbf{RO} & \textbf{Mix} & \textbf{$\Delta$} \\
 \midrule
 Random    & ROC-AUC    & 97.10$\pm$0.13 & 96.85$\pm$0.57 & $-$0.25 \\
 Random    & PR-AUC     & 97.19$\pm$0.16 & 96.96$\pm$0.49 & $-$0.22 \\
+Random    & F1         & 91.06$\pm$0.18 & 90.60$\pm$1.06 & $-$0.46 \\
 Random    & EER        & \phantom{0}8.95$\pm$0.09 & \phantom{0}9.49$\pm$0.94 & $+$0.54 \\
 Random    & FAR@FRR1\% & 36.01$\pm$4.06 & 38.91$\pm$7.86 & $+$2.90 \\
+Random    & TAR@FAR1\% & 63.37$\pm$1.99 & 62.73$\pm$3.91 & $-$0.65 \\
+Random    & catch@3    & 88.74$\pm$1.20 & 88.09$\pm$0.93 & $-$0.65 \\
 \midrule
 Semi-hard & ROC-AUC    & 96.03$\pm$0.10 & 95.95$\pm$0.75 & $-$0.08 \\
 Semi-hard & PR-AUC     & 96.25$\pm$0.19 & 96.12$\pm$0.65 & $-$0.13 \\
+Semi-hard & F1         & 89.16$\pm$0.12 & 88.98$\pm$1.06 & $-$0.18 \\
 Semi-hard & EER        & 10.59$\pm$0.10 & 11.03$\pm$1.18 & $+$0.43 \\
 Semi-hard & FAR@FRR1\% & 45.57$\pm$5.01 & 45.74$\pm$7.44 & $+$0.18 \\
+Semi-hard & TAR@FAR1\% & 58.91$\pm$2.88 & 58.24$\pm$3.87 & $-$0.68 \\
+Semi-hard & catch@3    & 83.37$\pm$1.84 & 83.71$\pm$1.15 & $+$0.33 \\
 \midrule
 Hard      & ROC-AUC    & 94.18$\pm$0.33 & 94.70$\pm$0.59 & $+$0.52 \\
 Hard      & PR-AUC     & 94.36$\pm$0.40 & 94.84$\pm$0.59 & $+$0.49 \\
@@ -488,10 +522,11 @@ Hard      & catch@3    & 75.69$\pm$1.76 & 78.62$\pm$1.89 & $+$2.93 \\
 \midrule
 Mixed     & ROC-AUC    & 96.02$\pm$0.32 & 95.91$\pm$0.85 & $-$0.10 \\
 Mixed     & PR-AUC     & 96.09$\pm$0.34 & 96.05$\pm$0.79 & $-$0.04 \\
+Mixed     & F1         & 89.22$\pm$0.29 & 88.94$\pm$1.38 & $-$0.27 \\
 Mixed     & EER        & 10.83$\pm$0.33 & 11.01$\pm$1.44 & $+$0.18 \\
 Mixed     & FAR@FRR1\% & 43.24$\pm$5.29 & 44.08$\pm$7.74 & $+$0.85 \\
-Mixed     & catch@3    & 83.61$\pm$0.89 & 83.67$\pm$1.37 & $+$0.06 \\
 Mixed     & TAR@FAR1\% & 54.50$\pm$2.02 & 57.11$\pm$3.21 & $+$2.61 \\
+Mixed     & catch@3    & 83.61$\pm$0.89 & 83.67$\pm$1.37 & $+$0.06 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{PAN-20, ELECTRA-base-discriminator (110M).}
@@ -510,13 +545,19 @@ Mixed     & TAR@FAR1\% & 54.50$\pm$2.02 & 57.11$\pm$3.21 & $+$2.61 \\
 \midrule
 Random    & ROC-AUC    & 96.28$\pm$0.22 & 96.38$\pm$0.12 & $+$0.10 \\
 Random    & PR-AUC     & 96.05$\pm$0.33 & 96.45$\pm$0.15 & $+$0.40 \\
+Random    & F1         & 90.24$\pm$0.18 & 89.94$\pm$0.22 & $-$0.30 \\
 Random    & EER        & \phantom{0}9.80$\pm$0.16 & 10.07$\pm$0.24 & $+$0.27 \\
 Random    & FAR@FRR1\% & 43.88$\pm$1.57 & 44.94$\pm$1.19 & $+$1.06 \\
+Random    & TAR@FAR1\% & 54.47$\pm$6.56 & 59.31$\pm$1.26 & $+$4.84 \\
+Random    & catch@3    & 88.62$\pm$1.54 & 88.82$\pm$0.82 & $+$0.20 \\
 \midrule
 Semi-hard & ROC-AUC    & 95.05$\pm$0.27 & 95.60$\pm$0.24 & $+$0.55 \\
 Semi-hard & PR-AUC     & 94.53$\pm$0.38 & 95.57$\pm$0.36 & $+$1.05 \\
+Semi-hard & F1         & 88.74$\pm$0.28 & 89.07$\pm$0.25 & $+$0.33 \\
 Semi-hard & EER        & 11.34$\pm$0.39 & 11.04$\pm$0.28 & $-$0.30 \\
 Semi-hard & FAR@FRR1\% & 50.70$\pm$0.75 & 48.25$\pm$1.14 & $-$2.45 \\
+Semi-hard & TAR@FAR1\% & 41.26$\pm$5.08 & 50.18$\pm$4.65 & $+$8.92 \\
+Semi-hard & catch@3    & 85.06$\pm$2.32 & 86.88$\pm$0.90 & $+$1.82 \\
 \midrule
 Hard      & ROC-AUC    & 86.74$\pm$1.02 & 89.60$\pm$0.85 & $+$2.86 \\
 Hard      & PR-AUC     & 83.17$\pm$1.37 & 88.54$\pm$1.26 & $+$5.37 \\
@@ -528,6 +569,7 @@ Hard      & catch@3    & 65.21$\pm$2.99 & 69.13$\pm$1.58 & $+$3.92 \\
 \midrule
 Mixed     & ROC-AUC    & 94.14$\pm$0.33 & 94.89$\pm$0.23 & $+$0.74 \\
 Mixed     & PR-AUC     & 92.86$\pm$0.54 & 94.58$\pm$0.38 & $+$1.72 \\
+Mixed     & F1         & 88.15$\pm$0.22 & 88.28$\pm$0.09 & $+$0.13 \\
 Mixed     & EER        & 12.09$\pm$0.35 & 12.01$\pm$0.18 & $-$0.08 \\
 Mixed     & FAR@FRR1\% & 51.20$\pm$0.36 & 49.94$\pm$1.23 & $-$1.26 \\
 Mixed     & TAR@FAR1\% & 22.28$\pm$3.31 & 41.85$\pm$2.90 & $+$19.57 \\
@@ -546,13 +588,19 @@ Mixed     & catch@3    & 83.59$\pm$1.94 & 84.96$\pm$1.39 & $+$1.37 \\
 \midrule
 Random    & ROC-AUC    & 96.25$\pm$0.21 & 96.28$\pm$0.13 & $+$0.03 \\
 Random    & PR-AUC     & 95.97$\pm$0.36 & 96.33$\pm$0.17 & $+$0.37 \\
+Random    & F1         & 90.12$\pm$0.47 & 89.78$\pm$0.26 & $-$0.34 \\
 Random    & EER        & \phantom{0}9.90$\pm$0.41 & 10.16$\pm$0.22 & $+$0.26 \\
 Random    & FAR@FRR1\% & 42.78$\pm$0.98 & 43.06$\pm$1.74 & $+$0.28 \\
+Random    & TAR@FAR1\% & 50.63$\pm$3.76 & 59.02$\pm$0.29 & $+$8.39 \\
+Random    & catch@3    & 88.61$\pm$0.18 & 88.87$\pm$1.75 & $+$0.25 \\
 \midrule
 Semi-hard & ROC-AUC    & 94.97$\pm$0.28 & 95.54$\pm$0.25 & $+$0.56 \\
 Semi-hard & PR-AUC     & 94.31$\pm$0.48 & 95.48$\pm$0.30 & $+$1.17 \\
+Semi-hard & F1         & 88.66$\pm$0.42 & 88.86$\pm$0.52 & $+$0.20 \\
 Semi-hard & EER        & 11.44$\pm$0.36 & 11.25$\pm$0.54 & $-$0.19 \\
 Semi-hard & FAR@FRR1\% & 49.45$\pm$0.91 & 45.41$\pm$2.20 & $-$4.03 \\
+Semi-hard & TAR@FAR1\% & 36.94$\pm$4.33 & 49.37$\pm$1.61 & $+$12.43 \\
+Semi-hard & catch@3    & 84.97$\pm$0.20 & 86.57$\pm$1.77 & $+$1.60 \\
 \midrule
 Hard      & ROC-AUC    & 86.40$\pm$0.72 & 89.76$\pm$0.91 & $+$3.36 \\
 Hard      & PR-AUC     & 82.13$\pm$1.14 & 88.78$\pm$1.26 & $+$6.65 \\
@@ -564,10 +612,11 @@ Hard      & catch@3    & 65.04$\pm$1.14 & 69.62$\pm$2.56 & $+$4.59 \\
 \midrule
 Mixed     & ROC-AUC    & 94.02$\pm$0.22 & 94.90$\pm$0.12 & $+$0.88 \\
 Mixed     & PR-AUC     & 92.48$\pm$0.34 & 94.58$\pm$0.33 & $+$2.11 \\
+Mixed     & F1         & 87.94$\pm$0.30 & 88.20$\pm$0.23 & $+$0.25 \\
 Mixed     & EER        & 12.32$\pm$0.28 & 12.04$\pm$0.27 & $-$0.28 \\
 Mixed     & FAR@FRR1\% & 50.27$\pm$0.64 & 47.77$\pm$2.38 & $-$2.50 \\
-Mixed     & catch@3    & 83.31$\pm$0.67 & 85.09$\pm$1.95 & $+$1.78 \\
 Mixed     & TAR@FAR1\% & 18.90$\pm$1.75 & 42.16$\pm$3.68 & $+$23.26 \\
+Mixed     & catch@3    & 83.31$\pm$0.67 & 85.09$\pm$1.95 & $+$1.78 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{WildChat-1M, BERT-base-uncased (110M).}
@@ -584,13 +633,19 @@ Mixed     & TAR@FAR1\% & 18.90$\pm$1.75 & 42.16$\pm$3.68 & $+$23.26 \\
 \midrule
 Random    & ROC-AUC    & 96.52$\pm$0.18 & 96.41$\pm$0.05 & $-$0.12 \\
 Random    & PR-AUC     & 96.63$\pm$0.22 & 96.53$\pm$0.07 & $-$0.11 \\
+Random    & F1         & 90.29$\pm$0.28 & 89.84$\pm$0.12 & $-$0.45 \\
 Random    & EER        & \phantom{0}9.62$\pm$0.20 & 10.07$\pm$0.04 & $+$0.45 \\
 Random    & FAR@FRR1\% & 47.49$\pm$1.39 & 44.24$\pm$1.15 & $-$3.26 \\
+Random    & TAR@FAR1\% & 62.86$\pm$1.50 & 60.36$\pm$0.52 & $-$2.50 \\
+Random    & catch@3    & 89.80$\pm$0.29 & 88.79$\pm$1.43 & $-$1.00 \\
 \midrule
 Semi-hard & ROC-AUC    & 95.58$\pm$0.16 & 95.86$\pm$0.03 & $+$0.28 \\
 Semi-hard & PR-AUC     & 95.72$\pm$0.23 & 95.96$\pm$0.05 & $+$0.24 \\
+Semi-hard & F1         & 89.09$\pm$0.28 & 89.16$\pm$0.19 & $+$0.06 \\
 Semi-hard & EER        & 10.89$\pm$0.38 & 10.81$\pm$0.15 & $-$0.08 \\
 Semi-hard & FAR@FRR1\% & 54.47$\pm$2.15 & 46.42$\pm$1.93 & $-$8.05 \\
+Semi-hard & TAR@FAR1\% & 54.04$\pm$2.91 & 54.53$\pm$1.94 & $+$0.49 \\
+Semi-hard & catch@3    & 86.73$\pm$0.44 & 87.06$\pm$1.29 & $+$0.33 \\
 \midrule
 Hard      & ROC-AUC    & 88.98$\pm$0.62 & 90.56$\pm$0.32 & $+$1.58 \\
 Hard      & PR-AUC     & 88.17$\pm$0.71 & 89.91$\pm$0.66 & $+$1.74 \\
@@ -602,10 +657,11 @@ Hard      & catch@3    & 67.52$\pm$0.80 & 69.84$\pm$2.60 & $+$2.32 \\
 \midrule
 Mixed     & ROC-AUC    & 94.80$\pm$0.28 & 95.16$\pm$0.17 & $+$0.36 \\
 Mixed     & PR-AUC     & 94.61$\pm$0.46 & 95.00$\pm$0.32 & $+$0.38 \\
+Mixed     & F1         & 88.36$\pm$0.29 & 88.41$\pm$0.17 & $+$0.05 \\
 Mixed     & EER        & 11.81$\pm$0.28 & 11.74$\pm$0.34 & $-$0.07 \\
 Mixed     & FAR@FRR1\% & 54.98$\pm$1.88 & 48.80$\pm$0.29 & $-$6.17 \\
-Mixed     & catch@3    & 85.30$\pm$0.38 & 85.35$\pm$2.06 & $+$0.05 \\
 Mixed     & TAR@FAR1\% & 44.40$\pm$4.21 & 46.77$\pm$1.12 & $+$2.36 \\
+Mixed     & catch@3    & 85.30$\pm$0.38 & 85.35$\pm$2.06 & $+$0.05 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{WildChat-1M, MiniLM-L6 (22.71M).}
@@ -620,13 +676,19 @@ Mixed     & TAR@FAR1\% & 44.40$\pm$4.21 & 46.77$\pm$1.12 & $+$2.36 \\
 \midrule
 Random    & ROC-AUC    & 95.71$\pm$0.47 & 95.79$\pm$0.32 & $+$0.09 \\
 Random    & PR-AUC     & 95.23$\pm$0.69 & 95.65$\pm$0.45 & $+$0.43 \\
+Random    & F1         & 89.38$\pm$0.71 & 89.28$\pm$0.40 & $-$0.10 \\
 Random    & EER        & 10.76$\pm$0.66 & 10.73$\pm$0.37 & $-$0.02 \\
 Random    & FAR@FRR1\% & 44.62$\pm$3.01 & 47.90$\pm$1.06 & $+$3.28 \\
+Random    & TAR@FAR1\% & 45.23$\pm$6.05 & 52.85$\pm$4.46 & $+$7.62 \\
+Random    & catch@3    & 86.89$\pm$1.01 & 87.05$\pm$1.32 & $+$0.16 \\
 \midrule
 Semi-hard & ROC-AUC    & 94.36$\pm$0.37 & 94.80$\pm$0.39 & $+$0.44 \\
 Semi-hard & PR-AUC     & 93.32$\pm$0.38 & 94.36$\pm$0.66 & $+$1.04 \\
+Semi-hard & F1         & 87.87$\pm$0.67 & 88.19$\pm$0.38 & $+$0.32 \\
 Semi-hard & EER        & 12.16$\pm$0.59 & 11.95$\pm$0.42 & $-$0.21 \\
 Semi-hard & FAR@FRR1\% & 50.51$\pm$1.85 & 50.73$\pm$1.54 & $+$0.22 \\
+Semi-hard & TAR@FAR1\% & 29.91$\pm$5.00 & 39.03$\pm$6.91 & $+$9.12 \\
+Semi-hard & catch@3    & 82.98$\pm$1.45 & 84.22$\pm$1.40 & $+$1.23 \\
 \midrule
 Hard      & ROC-AUC    & 85.08$\pm$0.82 & 87.57$\pm$1.66 & $+$2.49 \\
 Hard      & PR-AUC     & 79.62$\pm$1.44 & 84.63$\pm$3.00 & $+$5.02 \\
@@ -638,10 +700,11 @@ Hard      & catch@3    & 62.39$\pm$0.95 & 65.65$\pm$1.25 & $+$3.26 \\
 \midrule
 Mixed     & ROC-AUC    & 93.30$\pm$0.36 & 93.97$\pm$0.38 & $+$0.67 \\
 Mixed     & PR-AUC     & 91.22$\pm$0.74 & 92.92$\pm$0.81 & $+$1.70 \\
+Mixed     & F1         & 87.16$\pm$0.46 & 87.51$\pm$0.28 & $+$0.34 \\
 Mixed     & EER        & 13.07$\pm$0.45 & 12.69$\pm$0.39 & $-$0.38 \\
 Mixed     & FAR@FRR1\% & 51.27$\pm$0.90 & 53.19$\pm$0.40 & $+$1.92 \\
-Mixed     & catch@3    & 81.42$\pm$0.29 & 83.10$\pm$1.85 & $+$1.68 \\
 Mixed     & TAR@FAR1\% & 15.05$\pm$4.43 & 25.98$\pm$6.86 & $+$10.93 \\
+Mixed     & catch@3    & 81.42$\pm$0.29 & 83.10$\pm$1.85 & $+$1.68 \\
 \bottomrule
 \end{tabular}
 \captionof{table}{WildChat-1M, ELECTRA-base-discriminator (110M).}
@@ -650,7 +713,7 @@ Mixed     & TAR@FAR1\% & 15.05$\pm$4.43 & 25.98$\pm$6.86 & $+$10.93 \\
 \end{table*}
 
 
-\paragraph{What to look for.} Three patterns recur across encoders. (i) Many random-regime metrics move little between RO and Mix, sometimes slightly downward, which is expected: hardness-aware training trades some easy-imposter headroom for hard-imposter robustness. (ii) The largest absolute gains land on TAR@FAR1\% in the Hard and Mixed regimes on WildChat, especially for BERT and DistilBERT, because this metric reads off the tail of the score distribution where the topic-vs-style shortcut hurts the most. (iii) Standard deviations are largest on TAR@FAR1\% and FAR@FRR1\% for the same tail-reading reason: a fixed $1\%$ FAR budget on a few thousand test pairs is sensitive to a handful of score swaps near threshold, whereas ROC-AUC averages over the full ranking and is correspondingly stable.
+\paragraph{What to look for.} Four patterns recur across encoders. (i) Many random-regime metrics move little between RO and Mix, sometimes slightly downward, which is expected: hardness-aware training trades some easy-imposter headroom for hard-imposter robustness. (ii) The largest absolute gains land on TAR@FAR1\% in the Hard and Mixed regimes on WildChat, especially for BERT and DistilBERT, because this metric reads off the tail of the score distribution where the topic-vs-style shortcut hurts the most. (iii) The TAR@FAR1\% gain grows monotonically with imposter hardness rather than being confined to a single slice, confirming that the effect is a broad robustness improvement rather than a shift on the hardest test alone: on WildChat BERT the Mix$-$RO gain rises from $+8.39$ points at Random to $+12.43$ at Semi-hard to $+16.15$ at Hard. (iv) Standard deviations are largest on TAR@FAR1\% and FAR@FRR1\% for a tail-reading reason: a fixed $1\%$ FAR budget on a few thousand test pairs is sensitive to a handful of score swaps near threshold, whereas ROC-AUC averages over the full ranking and is correspondingly stable.
 
 \paragraph{Per-encoder pattern.} On PAN-20 the four encoders rank similarly: BERT and ELECTRA lead on ROC-AUC and TAR@FAR1\%, DistilBERT trails by a small margin, and MiniLM is consistently last but within roughly 2 ROC-AUC points. PAN's small random-only gap (Table~\ref{tab:robustness_gap}) leaves less room for hardness-aware training, so the Mix gains are modest. On WildChat the ranking shifts: MiniLM has the smallest random-only gap (7.55 ROC-AUC points) and also shows the smallest absolute Mix improvement, while BERT and DistilBERT absorb the largest TAR@FAR1\% gains ($+16.15$ and $+12.94$ points respectively on Hard). ELECTRA is the weakest WildChat encoder in both regimes and benefits less from hardness mining than BERT or DistilBERT ($+5.60$ TAR@FAR1\% on Hard), suggesting that its representations are less well suited to short conversational text under this setup.
 
